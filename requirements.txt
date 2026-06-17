@@ -1,13 +1,5 @@
 streamlit
 openai
-numpy
-pydub
-streamlit-webrtc
-av
-scipy
-edge_tts
-asyncio
-base64
-ultralytics
-opencv-python-headless
-pillow
+requests
+beautifulsoup4
+pypdf
