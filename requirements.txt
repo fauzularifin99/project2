@@ -10,4 +10,4 @@ asyncio
 base64
 ultralytics
 opencv-python-headless
-Pillow
+pillow
