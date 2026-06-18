@@ -1,1 +1,10 @@
-
+streamlit
+openai
+numpy
+pydub
+streamlit-webrtc
+av
+scipy
+ultralytics
+opencv-python-headless
+Pillow
