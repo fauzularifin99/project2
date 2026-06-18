@@ -1,5 +1,10 @@
 streamlit
 openai
-requests
-beautifulsoup4
-pypdf
+numpy
+pydub
+streamlit-webrtc
+av
+scipy
+ultralytics
+opencv-python-headless
+Pillow
