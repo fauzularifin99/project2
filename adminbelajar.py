@@ -8,7 +8,7 @@ from openai import OpenAI
 from pypdf import PdfReader
 import math
 
-st.set_page_config(page_title="Admin Belajar", layout="wide")
+st.set_page_config(page_title=" Admin ", layout="wide")
 
 # =========================
 # KONFIGURASI
