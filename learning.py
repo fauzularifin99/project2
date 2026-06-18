@@ -1,0 +1,285 @@
+import os
+import sqlite3
+from datetime import datetime
+
+import requests
+import streamlit as st
+from bs4 import BeautifulSoup
+from openai import OpenAI
+
+st.set_page_config(page_title="Admin Belajar", layout="wide")
+
+# =========================
+# KONFIGURASI
+# =========================
+DB_FILE = "belajar.db"
+ADMIN_PASSWORD = st.secrets["ADMIN_PASSWORD"]
+OPENAI_KEY = st.secrets["OPENAI_KEY"]
+client = OpenAI(api_key=OPENAI_KEY)
+
+
+# =========================
+# DATABASE
+# =========================
+conn = sqlite3.connect(DB_FILE, check_same_thread=False)
+cursor = conn.cursor()
+
+cursor.execute(
+    """
+    CREATE TABLE IF NOT EXISTS sumber_belajar (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        jenis TEXT,
+        judul TEXT,
+        sumber TEXT,
+        isi TEXT,
+        ringkasan TEXT,
+        catatan TEXT,
+        status TEXT,
+        dibuat_pada TEXT
+    )
+    """
+)
+conn.commit()
+
+
+# =========================
+# LOGIN ADMIN
+# =========================
+if "admin_login" not in st.session_state:
+    st.session_state.admin_login = False
+
+st.title("Halaman Admin Belajar")
+
+if st.session_state.admin_login is False:
+    password = st.text_input("Password admin", type="password")
+    if st.button("Login"):
+        if password == ADMIN_PASSWORD:
+            st.session_state.admin_login = True
+            st.rerun()
+        else:
+            st.error("Password salah")
+    st.stop()
+
+
+# =========================
+# FUNGSI BANTU
+# =========================
+def ambil_text_dari_url(url):
+    try:
+        headers = {"User-Agent": "Mozilla/5.0"}
+        r = requests.get(url, headers=headers, timeout=20)
+        r.raise_for_status()
+        soup = BeautifulSoup(r.text, "html.parser")
+
+        for tag in soup(["script", "style", "noscript"]):
+            tag.decompose()
+
+        text = soup.get_text("\n")
+        lines = [x.strip() for x in text.splitlines()]
+        lines = [x for x in lines if x != ""]
+        hasil = "\n".join(lines)
+        return hasil[:50000]
+    except Exception as e:
+        return f"ERROR_URL: {str(e)}"
+
+
+def ringkas_text(text):
+    if text.strip() == "":
+        return ""
+
+    prompt = f"""
+Buat ringkasan singkat dan faktual dari materi berikut.
+Jangan mengarang.
+Tulis dalam Bahasa Indonesia.
+Maksimal 10 poin singkat.
+
+Materi:
+{text[:15000]}
+"""
+
+    response = client.responses.create(
+        model="gpt-4o-mini",
+        input=prompt
+    )
+    return response.output_text
+
+
+def ambil_konteks_aktif():
+    cursor.execute("SELECT judul, isi FROM sumber_belajar WHERE status='AKTIF' ORDER BY id DESC")
+    rows = cursor.fetchall()
+
+    konteks = ""
+    nomor = 1
+    for row in rows:
+        judul = row[0]
+        isi = row[1]
+        konteks += f"\n\nSUMBER {nomor}: {judul}\n{isi[:5000]}"
+        nomor += 1
+
+    return konteks
+
+
+# =========================
+# MENU
+# =========================
+tab1, tab2, tab3, tab4 = st.tabs([
+    "Paste Text",
+    "Upload File Text",
+    "Input URL",
+    "History Belajar"
+])
+
+
+# =========================
+# TAB 1 - PASTE TEXT
+# =========================
+with tab1:
+    st.subheader("Tambah Materi dari Paste Text")
+    judul_text = st.text_input("Judul materi", key="judul_text")
+    isi_text = st.text_area("Paste text di sini", height=300, key="isi_text")
+    catatan_text = st.text_input("Catatan / ChatGPT nanti dipakai untuk apa", key="catatan_text")
+
+    if st.button("Simpan Paste Text"):
+        if judul_text == "" or isi_text == "":
+            st.error("Judul dan isi wajib diisi")
+        else:
+            ringkasan = ringkas_text(isi_text)
+            cursor.execute(
+                "INSERT INTO sumber_belajar (jenis, judul, sumber, isi, ringkasan, catatan, status, dibuat_pada) VALUES (?, ?, ?, ?, ?, ?, ?, ?)",
+                (
+                    "TEXT",
+                    judul_text,
+                    "PASTE_TEXT",
+                    isi_text,
+                    ringkasan,
+                    catatan_text,
+                    "AKTIF",
+                    datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+                )
+            )
+            conn.commit()
+            st.success("Materi text berhasil disimpan")
+
+
+# =========================
+# TAB 2 - UPLOAD FILE TEXT
+# =========================
+with tab2:
+    st.subheader("Tambah Materi dari Upload File")
+    judul_file = st.text_input("Judul file", key="judul_file")
+    file_upload = st.file_uploader("Upload file txt / md", type=["txt", "md"])
+    catatan_file = st.text_input("Catatan / dipakai untuk apa", key="catatan_file")
+
+    if st.button("Simpan File Upload"):
+        if judul_file == "" or file_upload is None:
+            st.error("Judul dan file wajib diisi")
+        else:
+            isi_file = file_upload.read().decode("utf-8", errors="ignore")
+            ringkasan = ringkas_text(isi_file)
+            cursor.execute(
+                "INSERT INTO sumber_belajar (jenis, judul, sumber, isi, ringkasan, catatan, status, dibuat_pada) VALUES (?, ?, ?, ?, ?, ?, ?, ?)",
+                (
+                    "FILE",
+                    judul_file,
+                    file_upload.name,
+                    isi_file,
+                    ringkasan,
+                    catatan_file,
+                    "AKTIF",
+                    datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+                )
+            )
+            conn.commit()
+            st.success("File berhasil disimpan")
+
+
+# =========================
+# TAB 3 - INPUT URL
+# =========================
+with tab3:
+    st.subheader("Tambah Materi dari URL")
+    judul_url = st.text_input("Judul URL", key="judul_url")
+    input_url = st.text_input("URL", key="input_url")
+    catatan_url = st.text_input("Catatan / dipakai untuk apa", key="catatan_url")
+
+    if st.button("Ambil dan Simpan URL"):
+        if judul_url == "" or input_url == "":
+            st.error("Judul dan URL wajib diisi")
+        else:
+            isi_url = ambil_text_dari_url(input_url)
+            if isi_url.startswith("ERROR_URL:"):
+                st.error(isi_url)
+            else:
+                ringkasan = ringkas_text(isi_url)
+                cursor.execute(
+                    "INSERT INTO sumber_belajar (jenis, judul, sumber, isi, ringkasan, catatan, status, dibuat_pada) VALUES (?, ?, ?, ?, ?, ?, ?, ?)",
+                    (
+                        "URL",
+                        judul_url,
+                        input_url,
+                        isi_url,
+                        ringkasan,
+                        catatan_url,
+                        "AKTIF",
+                        datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+                    )
+                )
+                conn.commit()
+                st.success("Materi dari URL berhasil disimpan")
+
+
+# =========================
+# TAB 4 - HISTORY BELAJAR
+# =========================
+with tab4:
+    st.subheader("History Belajar")
+
+    cursor.execute("SELECT id, jenis, judul, sumber, ringkasan, catatan, status, dibuat_pada FROM sumber_belajar ORDER BY id DESC")
+    rows = cursor.fetchall()
+
+    if len(rows) == 0:
+        st.info("Belum ada materi")
+    else:
+        for row in rows:
+            id_data = row[0]
+            jenis = row[1]
+            judul = row[2]
+            sumber = row[3]
+            ringkasan = row[4]
+            catatan = row[5]
+            status = row[6]
+            dibuat_pada = row[7]
+
+            with st.expander(f"{id_data} | {jenis} | {judul} | {status}"):
+                st.text(f"Sumber: {sumber}")
+                st.text(f"Dibuat pada: {dibuat_pada}")
+                st.text(f"Catatan: {catatan}")
+                st.text("Ringkasan:")
+                st.write(ringkasan)
+
+                col1, col2, col3 = st.columns(3)
+
+                with col1:
+                    if st.button("Aktifkan", key=f"aktif_{id_data}"):
+                        cursor.execute("UPDATE sumber_belajar SET status='AKTIF' WHERE id=?", (id_data,))
+                        conn.commit()
+                        st.rerun()
+
+                with col2:
+                    if st.button("Nonaktifkan", key=f"nonaktif_{id_data}"):
+                        cursor.execute("UPDATE sumber_belajar SET status='NONAKTIF' WHERE id=?", (id_data,))
+                        conn.commit()
+                        st.rerun()
+
+                with col3:
+                    if st.button("Hapus", key=f"hapus_{id_data}"):
+                        cursor.execute("DELETE FROM sumber_belajar WHERE id=?", (id_data,))
+                        conn.commit()
+                        st.rerun()
+
+    st.divider()
+    st.subheader("Konteks Aktif untuk Page Chat")
+    konteks = ambil_konteks_aktif()
+    st.text_area("Copy ini untuk dipakai sebagai knowledge base context di page chat", value=konteks, height=300)
+
+    st.caption("Catatan: ini bukan membuat model belajar permanen. Ini membuat knowledge base lokal yang nanti dipakai saat chat.")
