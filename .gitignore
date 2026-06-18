@@ -1,0 +1,16 @@
+# Streamlit secrets (WAJIB agar key tidak bocor)
+.streamlit/secrets.toml
+.streamlit/config.toml
+
+# Python virtual environments
+venv/
+env/
+_pycache_/
+*.py[cod]
+
+# OS metadata
+.DS_Store
+Thumbs.db
+
+# Codespaces / VS Code specifics
+.vscode/
